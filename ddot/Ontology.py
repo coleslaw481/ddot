@@ -3219,6 +3219,7 @@ class Ontology(object):
 
 
     @classmethod
+    #graph should be (list of) edge list with associated edge weights (if have any)
     def run_community_alg(cls, graph, method, **kwargs):
         '''
         
@@ -3238,21 +3239,6 @@ class Ontology(object):
             optimiser.optimise_partition_multiplex(partitions + [interslice_partition])
             quality = sum([p.quality() for p in partitions + [interslice_partition]])
             return partitions[0], quality
-
-        def partition_to_clust(graphs, partition, min_size_cut=2):
-            clusts = []
-            node_names = []
-            for g in graphs:
-                node_names.extend(g.vs['name'])
-            for i in range(len(partition)):
-                clust = [node_names[id] for id in partition[i]]
-                clust = list(set(clust))
-                if len(clust) < min_size_cut:
-                    continue
-                clust.sort()
-                clusts.append(clust)
-            clusts = sorted(clusts, key=lambda x: len(x), reverse=True)
-            return clusts
 
         multi = False
         if isinstance(graph, list):
@@ -3285,22 +3271,21 @@ class Ontology(object):
                     kwargs.pop('resolution_parameter')
 
             if multi:
-                G = [igraph.Graph.Read_Ncol(g) for g in graph]
+                G = [igraph.Graph(g) for g in graph]
                 partition, quality = louvain_multiplex(G, partition_type, **kwargs)
-                clusts = partition_to_clust(G, partition)
 
             else:
-                G = igraph.Graph.Read_Ncol(graph)
+                G = igraph.Graph(graph)
                 partition = louvain.find_partition(G, partition_type, **kwargs)
                 # quality = partition.quality()
-                clusts = partition_to_clust([G], partition)
+                
 
             table = []
-            if len(clusts) == 0:
+            if len(partition) == 0:
                 print("No cluster; Resolution parameter may be too extreme")
                 return
-            for i in range(len(clusts)):
-                for n in clusts[i]:
+            for i in range(len(partition)):
+                for n in partition[i]:
                     table.append((i, n, 'gene'))
             df = pd.DataFrame.from_records(table)
             ont = cls.from_table(df, clixo_format=True)
