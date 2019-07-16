@@ -13,6 +13,7 @@ import io
 from io import StringIO
 import json
 import datetime
+import igraph
 
 import numpy as np
 import pandas as pd
@@ -3219,10 +3220,14 @@ class Ontology(object):
 
 
     @classmethod
-    #graph should be (list of) edge list with associated edge weights (if have any)
+    # input graph should be one or a list of txt file in the format:
+    # #Graph type(directed/undirected)
+    # sourceNodeIDforEdge1    targetNodeIDforEdge1    edgeWeight(if any)
+    # sourceNodeIDforEdge2    targetNodeIDforEdge2    edgeWeight(if any)
+    #...
     def run_community_alg(cls, graph, method, **kwargs):
-        '''
         
+        '''
         :param graph: 
         :param method: 
         :param kwargs: 
@@ -3230,26 +3235,38 @@ class Ontology(object):
         '''
 
         def louvain_multiplex(graphs, partition_type, interslice_weight=0.1, **kwargs):
-            layers, interslice_layer, G_full = louvain.time_slices_to_layers(graphs,
-                                                                             vertex_id_attr='name',
-                                                                             interslice_weight=interslice_weight)
+            layers, interslice_layer, G_full = louvain.time_slices_to_layers(graphs, interslice_weight=interslice_weight)
             partitions = [partition_type(H, **kwargs) for H in layers]
             interslice_partition = partition_type(interslice_layer, weights='weight', **kwargs)
             optimiser = louvain.Optimiser()
             optimiser.optimise_partition_multiplex(partitions + [interslice_partition])
             quality = sum([p.quality() for p in partitions + [interslice_partition]])
             return partitions[0], quality
+        
+        overlap = False
+        if 'overlap' in kwargs:
+            if kwargs['overlap'] == True:
+                overlap = True
+            kwargs.pop('overlap')
 
         multi = False
         if isinstance(graph, list):
             multi = True
+        
         if method == 'louvain':
 
             # import Van Traag louvain package
             import louvain
             # import igraph # already imported
             # enable multiple configuration models; see
-
+            
+            if overlap == True and multi == False:
+                multi = True
+                net = graph
+                graph = []
+                for i in range(4):
+                    graph.append(net)
+            
             config_model = ''
             if 'configuration_model' in kwargs:
                 config_model = kwargs['configuration_model']
@@ -3269,30 +3286,131 @@ class Ontology(object):
                 partition_type = louvain.ModularityVertexPartition
                 if 'resolution_parameter' in kwargs:
                     kwargs.pop('resolution_parameter')
-
+                   
+            directed = False
+            weighted = False
             if multi:
-                G = [igraph.Graph(g) for g in graph]
+                dL = []
+                wL = []
+                G = []
+                for file in graph:
+                    with open(file, 'r') as f: 
+                        lines = f.read().splitlines()
+                    directed = (lines.pop(0) == 'directed')
+                    for i in range(len(lines)):
+                        elts = lines[i].split()
+                        for j in range(2):
+                            elts[j] = int(elts[j])
+                        if len(lines[0]) == 3:
+                            elts[2] = float(elts[2])
+                        lines[i] = tuple(elts)
+                    if len(lines[0]) == 3:
+                        weighted = True
+                    else:
+                        weighted = False
+                    g = igraph.Graph.TupleList(lines, directed=directed, weights=weighted)
+                    G.append(g)
+                    dL.append(directed)
+                    wL.append(weighted)
+                    file.close()
+                if (True in dL and False in dL) or (True in wL and False in wL):
+                    raise Exception('all graphs should follow the same format')
+                if partition_type == louvain.CPMVertexPartition and directed == True:
+                    raise Exception('graph for CPMVertexPartition must be undirected')
+                if partition_type == louvain.SignificanceVertexPartition and weighted == True:
+                    raise Exception('SignificanceVertexPartition only support unweighted graphs')
                 partition, quality = louvain_multiplex(G, partition_type, **kwargs)
 
             else:
-                G = igraph.Graph(graph)
+                with open(graph, 'r') as f: 
+                    lines = f.read().splitlines()
+                directed = (lines.pop(0) == 'directed')
+                for i in range(len(lines)):
+                    elts = lines[i].split()
+                    for j in range(len(elts)):
+                        elts[j] = int(elts[j])
+                    lines[i] = tuple(elts)
+                if len(lines[0]) == 3:
+                    weighted = True
+                else:
+                    weighted = False
+                f.close()
+                G = igraph.Graph.TupleList(lines, directed=directed, weights=weighted)
                 partition = louvain.find_partition(G, partition_type, **kwargs)
+                optimiser = louvain.Optimiser()
+                optimiser.move_nodes(partition)
                 # quality = partition.quality()
                 
 
-            table = []
+            #table = []
             if len(partition) == 0:
                 print("No cluster; Resolution parameter may be too extreme")
                 return
+            maxNode = 0
+            for p in partition:
+                maxNode = max(maxNode, max(p))
+            wfile = open('tree.txt', 'w')
             for i in range(len(partition)):
+                wfile.write(str(maxNode+len(partition)+1) + '\t' + str(maxNode+i+1) + '\t' + 'term-term' + '\n')
                 for n in partition[i]:
-                    table.append((i, n, 'gene'))
-            df = pd.DataFrame.from_records(table)
-            ont = cls.from_table(df, clixo_format=True)
-            ont.add_root('ROOT', inplace=True)
-            return ont
+                    wfile.write(str(maxNode+i+1) + '\t' + str(n) + '\t' + 'term-gene' + '\n')
+                    #table.append((i, n, 'gene'))
+            wfile.close()
+            #df = pd.DataFrame.from_records(table)
+            #ont = cls.from_table(df, clixo_format=True)
+            #ont.add_root('ROOT', inplace=True)
+            #return ont
+            
+        # make sure Infomap is already installed
         elif method == 'infomap':
-            raise Exception('Infomap integration is under development')
+            if multi == True:
+                raise Exception('Infomap only deals with single graph')
+                
+            cmd = './Infomap graph . --input-format link-list -z'
+            with open(graph, 'r') as f: 
+                lines = f.read().splitlines()
+                directed = (lines.pop(0) == 'directed')
+            f.close()
+            if overlap == True:
+                cmd += ' --overlapping'
+            if directed == True:
+                cmd += ' -d'
+            !$cmd
+            
+            file_name = graph.split('.txt')[0]
+            tree_name = file_name + '.tree'
+            treef = open(tree_name, 'r')
+            lines = treef.read().splitlines()
+            while '#' in lines[0] :
+                lines.pop(0)
+            nrow = len(lines)
+            ncol = len(lines[0].split(':'))
+            treef.close()
+            
+            A = np.zeros((nrow, ncol))
+            for i in range(len(lines)):
+                Elts = lines[i].split()
+                leaf = Elts[2][1:-1]
+                links = Elts[0].split(':')
+                for j in range(len(links)-1):
+                    A[i, j] = int(links[j])
+                A[i, -1] = int(leaf)
+            maxElt = max(A[:, -1])
+            for j in range(A.shape[1]-1):
+                k = A.shape[1]-2-j
+                for i in range(A.shape[0]):
+                    A[i,k] = A[i,k] + maxElt
+                maxElt = max(A[:, k])
+            root = maxElt + 1
+            
+            wfile = open('tree.txt', 'w')
+            for i in range(A.shape[0]):
+                wfile.write(str(root) + '\t' + str(A[i,0]) + '\t' + 'term-term' + '\n')
+                for j in range(1, A.shape[1]-2):
+                    wfile.write(str(A[i,j]) + '\t' + str(A[i,j+1]) + '\t' + 'term-term' + '\n')
+                wfile.write(str(A[i,A.shape[1]-2]) + '\t' + str(A[i,A.shape[1]-1]) + '\t' + 'term-gene' + '\n')
+            wfile.close()
+            
         else:
             raise Exception("Unsupported method of community detection")
         return
