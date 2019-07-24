@@ -14,6 +14,8 @@ from io import StringIO
 import json
 import datetime
 import igraph
+import os
+import ntpath
 
 import numpy as np
 import pandas as pd
@@ -3218,7 +3220,33 @@ class Ontology(object):
         else:
             raise Exception("Unsupported method for inferring ontology")
 
-
+    @classmethod
+    # input graph should be one or a list of txt file in the format:
+    # #Graph type(directed/undirected)
+    # sourceNodeIDforEdge1    targetNodeIDforEdge1    edgeWeight(if any)
+    # sourceNodeIDforEdge2    targetNodeIDforEdge2    edgeWeight(if any)
+    #...
+    def run_louvain(cls, graph, config_model='Default', directed=False, interslice_weight=0.1, resolution_parameter=0.1):
+        
+        '''
+        :param graph: input file
+        :param config_model: 'RB', 'RBER', 'CPM', 'Surprise', 'Significance'
+        :param directed:
+        :param interslice_weight
+        :param resolution_parameter
+        :return: link file
+        '''
+        
+        def louvain_multiplex(graphs, partition_type, interslice_weight, **kwargs):
+            layers, interslice_layer, G_full = louvain.time_slices_to_layers(graphs, vertex_id_attr='name', interslice_weight=interslice_weight)
+            partitions = [partition_type(H, **kwargs) for H in layers]
+            interslice_partition = partition_type(interslice_layer, weights='weight', **kwargs)
+            optimiser = louvain.Optimiser()
+            optimiser.optimise_partition_multiplex(partitions + [interslice_partition])
+            quality = sum([p.quality() for p in partitions + [interslice_partition]])
+            return partitions[0], quality
+    
+    
     @classmethod
     # input graph should be one or a list of txt file in the format:
     # #Graph type(directed/undirected)
@@ -3231,11 +3259,11 @@ class Ontology(object):
         :param graph: 
         :param method: 
         :param kwargs: 
-        :return: 
+        :return:
         '''
 
         def louvain_multiplex(graphs, partition_type, interslice_weight=0.1, **kwargs):
-            layers, interslice_layer, G_full = louvain.time_slices_to_layers(graphs, interslice_weight=interslice_weight)
+            layers, interslice_layer, G_full = louvain.time_slices_to_layers(graphs, vertex_id_attr='name', interslice_weight=interslice_weight)
             partitions = [partition_type(H, **kwargs) for H in layers]
             interslice_partition = partition_type(interslice_layer, weights='weight', **kwargs)
             optimiser = louvain.Optimiser()
@@ -3296,23 +3324,24 @@ class Ontology(object):
                 for file in graph:
                     with open(file, 'r') as f: 
                         lines = f.read().splitlines()
-                    directed = (lines.pop(0) == 'directed')
+                    directed = (lines.pop(0) == '#directed')
+                    elts = lines[0].split()
+                    if len(elts) == 3:
+                        weighted = True
+                    else:
+                        weighted = False
                     for i in range(len(lines)):
                         elts = lines[i].split()
                         for j in range(2):
                             elts[j] = int(elts[j])
-                        if len(lines[0]) == 3:
+                        if weighted == True:
                             elts[2] = float(elts[2])
                         lines[i] = tuple(elts)
-                    if len(lines[0]) == 3:
-                        weighted = True
-                    else:
-                        weighted = False
                     g = igraph.Graph.TupleList(lines, directed=directed, weights=weighted)
                     G.append(g)
                     dL.append(directed)
                     wL.append(weighted)
-                    file.close()
+                    f.close()
                 if (True in dL and False in dL) or (True in wL and False in wL):
                     raise Exception('all graphs should follow the same format')
                 if partition_type == louvain.CPMVertexPartition and directed == True:
@@ -3324,16 +3353,19 @@ class Ontology(object):
             else:
                 with open(graph, 'r') as f: 
                     lines = f.read().splitlines()
-                directed = (lines.pop(0) == 'directed')
-                for i in range(len(lines)):
-                    elts = lines[i].split()
-                    for j in range(len(elts)):
-                        elts[j] = int(elts[j])
-                    lines[i] = tuple(elts)
-                if len(lines[0]) == 3:
+                directed = (lines.pop(0) == '#directed')
+                elts = lines[0].split()
+                if len(elts) == 3:
                     weighted = True
                 else:
                     weighted = False
+                for i in range(len(lines)):
+                    elts = lines[i].split()
+                    for j in range(2):
+                        elts[j] = int(elts[j])
+                    if weighted == True:
+                        elts[2] = float(elts[2])
+                    lines[i] = tuple(elts)
                 f.close()
                 G = igraph.Graph.TupleList(lines, directed=directed, weights=weighted)
                 partition = louvain.find_partition(G, partition_type, **kwargs)
@@ -3366,7 +3398,7 @@ class Ontology(object):
             if multi == True:
                 raise Exception('Infomap only deals with single graph')
                 
-            cmd = './Infomap graph . --input-format link-list -z'
+            cmd = './ddot/Infomap/Infomap -i link-list ' + graph + ' .'
             with open(graph, 'r') as f: 
                 lines = f.read().splitlines()
                 directed = (lines.pop(0) == 'directed')
@@ -3375,16 +3407,19 @@ class Ontology(object):
                 cmd += ' --overlapping'
             if directed == True:
                 cmd += ' -d'
-            !$cmd
+            os.system(cmd)
             
-            file_name = graph.split('.txt')[0]
+            file_name = ntpath.basename(graph).split('.txt')[0]
             tree_name = file_name + '.tree'
             treef = open(tree_name, 'r')
             lines = treef.read().splitlines()
             while '#' in lines[0] :
                 lines.pop(0)
             nrow = len(lines)
-            ncol = len(lines[0].split(':'))
+            ncol_list = []
+            for line in lines:
+                ncol_list.append(len(line.split(':')))
+            ncol = max(ncol_list)
             treef.close()
             
             A = np.zeros((nrow, ncol))
@@ -3398,22 +3433,40 @@ class Ontology(object):
             maxElt = max(A[:, -1])
             for j in range(A.shape[1]-1):
                 k = A.shape[1]-2-j
-                for i in range(A.shape[0]):
-                    A[i,k] = A[i,k] + maxElt
-                maxElt = max(A[:, k])
+                lastone = A[0,k]
+                A[0,k] = A[0,k] + maxElt
+                maxElt = A[0,k]
+                for i in range(1, A.shape[0]):
+                    if A[i,k] == 0:
+                        continue
+                    if lastone != A[i,k]:
+                        maxElt = maxElt + 1
+                    lastone = A[i,k]
+                    A[i,k] = maxElt
             root = maxElt + 1
+            print(A)
+            
+            edges = set()
+            for i in range(A.shape[0]):
+                edges.add((int(root), int(A[i,0]), 't-t'))
+                last = int(A[i,A.shape[1]-2])
+                for j in range(0, A.shape[1]-2):
+                    if A[i,j+1] == 0:
+                        last = int(A[i,j])
+                        break
+                    else:
+                        edges.add((int(A[i,j]), int(A[i,j+1]), 't-t'))
+                edges.add((last, int(A[i,A.shape[1]-1]), 't-g'))
             
             wfile = open('tree.txt', 'w')
-            for i in range(A.shape[0]):
-                wfile.write(str(root) + '\t' + str(A[i,0]) + '\t' + 'term-term' + '\n')
-                for j in range(1, A.shape[1]-2):
-                    wfile.write(str(A[i,j]) + '\t' + str(A[i,j+1]) + '\t' + 'term-term' + '\n')
-                wfile.write(str(A[i,A.shape[1]-2]) + '\t' + str(A[i,A.shape[1]-1]) + '\t' + 'term-gene' + '\n')
+            for edge in edges:
+                wfile.write(str(edge[0]) + '\t' + str(edge[1]) + '\t' + edge[2] + '\n')
             wfile.close()
             
         else:
             raise Exception("Unsupported method of community detection")
         return
+    
 
     @classmethod
     def run_scipy_linkage(cls,
