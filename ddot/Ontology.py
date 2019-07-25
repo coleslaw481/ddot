@@ -3398,7 +3398,11 @@ class Ontology(object):
             if multi == True:
                 raise Exception('Infomap only deals with single graph')
                 
+<<<<<<< Updated upstream
             cmd = './ddot/Infomap/Infomap -i link-list ' + graph + ' .'
+=======
+            cmd = '../ddot/Infomap -i link-list ' + graph + ' .'
+>>>>>>> Stashed changes
             with open(graph, 'r') as f: 
                 lines = f.read().splitlines()
                 directed = (lines.pop(0) == 'directed')
@@ -3413,8 +3417,13 @@ class Ontology(object):
             tree_name = file_name + '.tree'
             treef = open(tree_name, 'r')
             lines = treef.read().splitlines()
+            non_zero_lines = []
             while '#' in lines[0] :
                 lines.pop(0)
+            for i in range(len(lines)):
+                if 0 != float(lines[i].split()[1]):
+                    non_zero_lines.append(lines[i])
+            lines = non_zero_lines
             nrow = len(lines)
             ncol_list = []
             for line in lines:

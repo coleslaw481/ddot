@@ -22,7 +22,7 @@ class Controller(Resource):
                 f.write('#' + graph_type + '\n')
                 f.write(edge_list)
                 
-            Ontology.run_community_alg(graph = file_name, method = algorithm, overlap = True, configuration_model = 'RB')
+            Ontology.run_community_alg(graph = file_name, method = algorithm, overlap = False, configuration_model = 'RB')
             
             content = ''
             with open('tree.txt', 'r') as f:

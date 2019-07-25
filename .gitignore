@@ -1,2 +1,5 @@
 ddot/.idea/*
 ddot/*.pyc
+test/
+ddot/__pycache__/*.pyc
+.idea/
