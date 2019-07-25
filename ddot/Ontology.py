@@ -3397,12 +3397,8 @@ class Ontology(object):
         elif method == 'infomap':
             if multi == True:
                 raise Exception('Infomap only deals with single graph')
-                
-<<<<<<< Updated upstream
+
             cmd = './ddot/Infomap/Infomap -i link-list ' + graph + ' .'
-=======
-            cmd = '../ddot/Infomap -i link-list ' + graph + ' .'
->>>>>>> Stashed changes
             with open(graph, 'r') as f: 
                 lines = f.read().splitlines()
                 directed = (lines.pop(0) == 'directed')
