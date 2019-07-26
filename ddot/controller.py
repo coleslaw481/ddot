@@ -26,7 +26,9 @@ class Controller(Resource):
             
             content = ''
             with open('tree.txt', 'r') as f:
-                content = f.read()
+                for line in f:
+                    temp = line.replace('\t', ',')
+                    content += temp.replace('\n', ';')
             return content, 201
         except Exception as e:
             return {'error': str(e)}
