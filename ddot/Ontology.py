@@ -3221,32 +3221,256 @@ class Ontology(object):
             raise Exception("Unsupported method for inferring ontology")
 
     @classmethod
-    # input graph should be one or a list of txt file in the format:
+    # input graph should be one or a list of txt file in the link file format:
     # #Graph type(directed/undirected)
     # sourceNodeIDforEdge1    targetNodeIDforEdge1    edgeWeight(if any)
     # sourceNodeIDforEdge2    targetNodeIDforEdge2    edgeWeight(if any)
     #...
-    def run_louvain(cls, graph, config_model='Default', directed=False, interslice_weight=0.1, resolution_parameter=0.1):
+    def run_louvain(cls, graph, outdir='.', config_model='Default', overlap=False, directed=False, interslice_weight=0.1, resolution_parameter=0.1):
         
         '''
+        :outdir: the output directory to comprehend the output link file
         :param graph: input file
         :param config_model: 'RB', 'RBER', 'CPM', 'Surprise', 'Significance'
-        :param directed:
+        :param overlap: bool, whether to enable overlapping community detection
+        :param directed
         :param interslice_weight
         :param resolution_parameter
-        :return: link file
+        :return
         '''
         
-        def louvain_multiplex(graphs, partition_type, interslice_weight, **kwargs):
+        # import Van Traag louvain package
+        import louvain
+        
+        def louvain_multiplex(graphs, partition_type, interslice_weight, resolution_parameter):
             layers, interslice_layer, G_full = louvain.time_slices_to_layers(graphs, vertex_id_attr='name', interslice_weight=interslice_weight)
-            partitions = [partition_type(H, **kwargs) for H in layers]
-            interslice_partition = partition_type(interslice_layer, weights='weight', **kwargs)
+            partitions = [partition_type(H, resolution_parameter) for H in layers]
+            interslice_partition = partition_type(interslice_layer, resolution_parameter, weights='weight')
             optimiser = louvain.Optimiser()
             optimiser.optimise_partition_multiplex(partitions + [interslice_partition])
             quality = sum([p.quality() for p in partitions + [interslice_partition]])
             return partitions[0], quality
+
+        multi = False
+        if isinstance(graph, list):
+            multi = True
+        
+        if overlap == True and multi == False:
+            multi = True
+            net = graph
+            graph = []
+            for i in range(4):
+                graph.append(net)
+            
+        if config_model == 'RB':
+            partition_type = louvain.RBConfigurationVertexPartition
+        elif config_model == 'RBER':
+            partition_type = louvain.RBERConfigurationVertexPartition
+        elif config_model == 'CPM':
+            partition_type = louvain.CPMVertexPartition
+        elif config_model == 'Surprise':
+            partition_type = louvain.SurpriseVertexPartition
+        elif config_model == "Significance":
+            partition_type = louvain.SignificanceVertexPartition
+        else:
+            print("Not specifying the configuration model; perform simple Louvain.")
+            partition_type = louvain.ModularityVertexPartition
+                   
+        weighted = False
+        if multi:
+            wL = []
+            G = []
+            for file in graph:
+                with open(file, 'r') as f: 
+                    lines = f.read().splitlines()
+                elts = lines[0].split()
+                if len(elts) == 3:
+                    weighted = True
+                else:
+                    weighted = False
+                for i in range(len(lines)):
+                    elts = lines[i].split()
+                    for j in range(2):
+                        elts[j] = int(elts[j])
+                    if weighted == True:
+                        elts[2] = float(elts[2])
+                    lines[i] = tuple(elts)
+                g = igraph.Graph.TupleList(lines, directed=directed, weights=weighted)
+                G.append(g)
+                wL.append(weighted)
+                f.close()
+            if True in wL and False in wL:
+                raise Exception('all graphs should follow the same format')
+            if partition_type == louvain.CPMVertexPartition and directed == True:
+                raise Exception('graph for CPMVertexPartition must be undirected')
+            if partition_type == louvain.SignificanceVertexPartition and weighted == True:
+                raise Exception('SignificanceVertexPartition only support unweighted graphs')
+            partition, quality = louvain_multiplex(G, partition_type, interslice_weight, resolution_parameter)
+
+        else:
+            with open(graph, 'r') as f: 
+                lines = f.read().splitlines()
+            Node2Index = {}
+            elts = lines[0].split()
+            if len(elts) == 3:
+                weighted = True
+            else:
+                weighted = False
+            index = 0
+            for i in range(len(lines)):
+                elts = lines[i].split()
+                for j in range(2):
+                    elts[j] = int(elts[j])
+                    if elts[j] not in Node2Index :
+                        Node2Index[elts[j]] = index
+                        index += 1
+                if weighted == True:
+                    elts[2] = float(elts[2])
+                lines[i] = tuple(elts)
+            Index2Node = {}
+            for node in Node2Index:
+                Index2Node[Node2Index[node]] = node
+            f.close()
+            G = igraph.Graph.TupleList(lines, directed=directed, weights=weighted)
+            if weighted == False:
+                weights = None
+            else:
+                weights = G.es['weight']
+            partition = louvain.find_partition(G,partition_type, weights=weights, resolution_parameter = resolution_parameter)
+            optimiser = louvain.Optimiser()
+            optimiser.optimise_partition(partition)
+            # quality = partition.quality()
+                
+
+        if len(partition) == 0:
+            print("No cluster; Resolution parameter may be too extreme")
+            return
+        
+        maxNode = max(list(Node2Index.keys()))
+        if outdir[-1] in ["/","\\","\\"+"\\"]:
+            outdir = outdir[:-1]
+        wfile = open(outdir + '/tree.txt', 'w')
+        for i in range(len(partition)):
+            wfile.write(str(maxNode+len(partition)+1) + '\t' + str(maxNode+i+1) + '\t' + 'term-term' + '\n')
+            for n in partition[i]:
+                wfile.write(str(maxNode+i+1) + '\t' + str(Index2Node[n]) + '\t' + 'term-gene' + '\n')
+        wfile.close()      
     
+        return
+                          
+                          
+                          
+    @classmethod
+    # input graph should be one or a list of txt file in the link file format:
+    # #Graph type(directed/undirected)
+    # sourceNodeIDforEdge1    targetNodeIDforEdge1    edgeWeight(if any)
+    # sourceNodeIDforEdge2    targetNodeIDforEdge2    edgeWeight(if any)
+    #...
+    def run_infomap(cls, algdir, graph, outdir='.', overlap=False, directed=False):    
     
+        '''
+        :algdir: location of the infomap excutable with respect to ddot
+        :outdir: the output directory to comprehend the output link file
+        :param graph: input file
+        :param overlap: bool, whether to enable overlapping community detection
+        :param directed
+        :return
+        '''
+                          
+        # make sure Infomap is already installed
+                          
+        if isinstance(graph, list):
+            raise Exception('Infomap only deals with single graph')
+
+        with open(graph, 'r') as f: 
+            lines = f.read().splitlines()
+        
+        containZero = False
+        for line in lines:
+            elts = line.split()
+            if int(elts[0]) == 0:
+                containZero = True
+                break
+            if int(elts[1]) == 0:
+                containZero = True
+                break
+            
+        cmd = algdir + ' -i link-list'
+        
+        if containZero == True:
+            cmd += ' -z'
+        if overlap == True:
+            cmd += ' --overlapping'
+        if directed == True:
+            cmd += ' -d'
+        cmd = cmd + ' ' + graph + ' .'
+        os.system(cmd)
+            
+        file_name = ntpath.basename(graph).split('.txt')[0]
+        tree_name = file_name + '.tree'
+        treef = open(tree_name, 'r')
+        lines = treef.read().splitlines()
+        non_zero_lines = []
+        while '#' in lines[0] :
+            lines.pop(0)
+        for i in range(len(lines)):
+            if 0 != float(lines[i].split()[1]):
+                non_zero_lines.append(lines[i])
+        lines = non_zero_lines
+        nrow = len(lines)
+        ncol_list = []
+        for line in lines:
+            ncol_list.append(len(line.split(':')))
+        ncol = max(ncol_list)
+        treef.close()
+            
+        A = np.zeros((nrow, ncol))
+        for i in range(len(lines)):
+            Elts = lines[i].split()
+            leaf = Elts[2][1:-1]
+            links = Elts[0].split(':')
+            for j in range(len(links)-1):
+                A[i, j] = int(links[j])
+            A[i, -1] = int(leaf)
+        maxElt = max(A[:, -1])
+        for j in range(A.shape[1]-1):
+            k = A.shape[1]-2-j
+            lastone = A[0,k]
+            A[0,k] = A[0,k] + maxElt
+            maxElt = A[0,k]
+            for i in range(1, A.shape[0]):
+                if A[i,k] == 0:
+                    continue
+                if lastone != A[i,k]:
+                    maxElt = maxElt + 1
+                lastone = A[i,k]
+                A[i,k] = maxElt
+        root = maxElt + 1
+            
+        edges = set()
+        for i in range(A.shape[0]):
+            edges.add((int(root), int(A[i,0]), 't-t'))
+            last = int(A[i,A.shape[1]-2])
+            for j in range(0, A.shape[1]-2):
+                if A[i,j+1] == 0:
+                    last = int(A[i,j])
+                    break
+                else:
+                    edges.add((int(A[i,j]), int(A[i,j+1]), 't-t'))
+            edges.add((last, int(A[i,A.shape[1]-1]), 't-g'))
+            
+        if outdir[-1] in ["/","\\","\\"+"\\"]:
+            outdir = outdir[:-1]
+        wfile = open(outdir + '/tree.txt', 'w')
+        for edge in edges:
+            wfile.write(str(edge[0]) + '\t' + str(edge[1]) + '\t' + edge[2] + '\n')
+        wfile.close()
+            
+        return
+    
+                          
+                          
+                           
     @classmethod
     # input graph should be one or a list of txt file in the format:
     # #Graph type(directed/undirected)
@@ -3473,6 +3697,7 @@ class Ontology(object):
         return
     
 
+                          
     @classmethod
     def run_scipy_linkage(cls,
                           graph,
