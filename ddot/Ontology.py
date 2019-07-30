@@ -3362,11 +3362,10 @@ class Ontology(object):
                           
     @classmethod
     # input graph should be one or a list of txt file in the link file format:
-    # #Graph type(directed/undirected)
     # sourceNodeIDforEdge1    targetNodeIDforEdge1    edgeWeight(if any)
     # sourceNodeIDforEdge2    targetNodeIDforEdge2    edgeWeight(if any)
     #...
-    def run_infomap(cls, algdir, graph, outdir='.', overlap=False, directed=False):    
+    def run_infomap(cls, algdir, graph, outdir='.', overlap=False, directed=False): 
     
         '''
         :algdir: location of the infomap excutable with respect to ddot

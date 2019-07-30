@@ -15,14 +15,18 @@ class Controller(Resource):
             args = parser.parse_args()
             print(args)
             algorithm = args['algorithm']
-            graph_type = args['type']
+            graph_type = False
+            if args['type'] == "directed":
+                graph_type = True
             edge_list = args['edge_list']
             
             with open(file_name, 'w+') as f:
-                f.write('#' + graph_type + '\n')
                 f.write(edge_list)
-                
-            Ontology.run_community_alg(graph = file_name, method = algorithm, overlap = False, configuration_model = 'RB')
+            
+            if algorithm == "louvain":
+                Ontology.run_louvain(graph = file_name, directed = graph_type)
+            elif algorithm == "infomap":
+                Ontology.run_infomap(algdir = "../ddot/Infomap/Infomap", graph = file_name, directed = graph_type)
             
             content = ''
             with open('tree.txt', 'r') as f:

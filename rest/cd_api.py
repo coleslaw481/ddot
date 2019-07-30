@@ -7,4 +7,4 @@ app = Flask(__name__)
 api = Api(app)
 
 api.add_resource(Controller, '/cd')
-app.run(host='0.0.0.0')
+app.run()
