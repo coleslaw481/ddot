@@ -25,6 +25,7 @@ DDOT requires the following software
 * [python-igraph](http://igraph.org/python/). Recommend installing through [anaconda](https://anaconda.org/conda-forge/python-igraph) or [pip](https://pypi.python.org/pypi/python-igraph/0.7).
 * [ndex-dev](https://github.com/ndexbio/ndex-python). Recommend installing through [pip](https://pypi.python.org/pypi/ndex-dev).
 * [tulip-python](https://pypi.python.org/pypi/tulip-python). Recommend installing through [pip](https://pypi.python.org/pypi/tulip-python).
+* [louvain](https://louvain-igraph.readthedocs.io/en/latest/install.html)
 
 The recommended method for installing these dependencies is to use the [Anaconda](https://conda.io/docs/user-guide/install/download.html) distrubution of Python, and then install Python packages via the conda and pip repositories.
 
